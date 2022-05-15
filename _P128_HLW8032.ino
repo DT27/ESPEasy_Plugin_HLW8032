@@ -1,25 +1,26 @@
-#ifdef USES_P091
+#ifdef USES_P128
 //#######################################################################################################
-//##################################### Plugin 091: HLW8032 - Energy ####################################
+//##################################### Plugin 128: HLW8032 - Energy ####################################
 //#######################################################################################################
 //######################################## DT27 @ Domoticz.cn ###########################################
 //#######################################################################################################
 
 #include "_Plugin_Helper.h"
 
-#define PLUGIN_091
-#define PLUGIN_ID_091         91
-#define PLUGIN_NAME_091       "Energy (AC) - HLW8032"
-#define PLUGIN_VALUENAME1_091 "Voltage"       //电压
-#define PLUGIN_VALUENAME2_091 "Current"       //电流
-#define PLUGIN_VALUENAME3_091 "Power"         //功率
-#define PLUGIN_VALUENAME4_091 "Total Pulses"  //脉冲总数量
+#define PLUGIN_128
+#define PLUGIN_ID_128         128
+#define PLUGIN_NAME_128       "Energy (AC) - HLW8032"
+#define PLUGIN_VALUENAME1_128 "Voltage"       //电压
+#define PLUGIN_VALUENAME2_128 "Current"       //电流
+#define PLUGIN_VALUENAME3_128 "Power"         //功率
+// #define PLUGIN_VALUENAME4_128 "Total Pulses"  //脉冲总数量
+#define PLUGIN_VALUENAME5_128 "Energy"        //电量
 
 #define CSE_NOT_CALIBRATED          0xAA      //状态寄存器(State REG)，芯片误差修正功能失效，寄存器数据无效
 #define VF                          1.88      //电压系数 (470K*4)/(1K*1000) = 1.88
 #define CF                          1         //电流系数 1/(0.001*1000) = 1
 
-struct P091_data_struct : public PluginTaskData_base {
+struct P128_data_struct : public PluginTaskData_base {
 
   uint8_t serial_in_buffer[32];
   long voltage_reg = 0;
@@ -30,6 +31,7 @@ struct P091_data_struct : public PluginTaskData_base {
   float energy_voltage = 0;
   float energy_current = 0;
   float energy_power = 0;
+  float energy = 0;
   long PF = 0;                 //脉冲计数器
 	long PFData = 0;             //脉冲溢出计数器
 
@@ -63,6 +65,7 @@ struct P091_data_struct : public PluginTaskData_base {
     energy_voltage = 0;
     energy_power = 0;
     energy_current = 0;
+    energy = 0;
 
     //脉冲数量寄存器
     cf_pulses = serial_in_buffer[21] << 8 | serial_in_buffer[22];
@@ -96,6 +99,10 @@ struct P091_data_struct : public PluginTaskData_base {
       //有功功率
       energy_power = ((float)power_coefficient / (float)power_reg) * 1.88 * CF;
 		}
+    if(power_coefficient>0){
+      // energy = total_cf_pulses/((1/power_reg)*(1/(VF*CF))*1000000000*3600);
+      energy = total_cf_pulses/((1/(float)power_coefficient)*(1/1.88)*3600000000000);
+    }
     return true;
   }
 
@@ -117,35 +124,37 @@ struct P091_data_struct : public PluginTaskData_base {
 
 };
 
-boolean Plugin_091(byte function, struct EventStruct *event, String &string) {
+boolean Plugin_128(byte function, struct EventStruct *event, String &string) {
   boolean success = false;
 
   switch (function) {
     case PLUGIN_DEVICE_ADD: {
-      Device[++deviceCount].Number = PLUGIN_ID_091;
-      Device[deviceCount].VType = SENSOR_TYPE_QUAD;
+      Device[++deviceCount].Number = PLUGIN_ID_128;
+      // Device[deviceCount].Type = DEVICE_TYPE_SERIAL;
+      Device[deviceCount].VType = Sensor_VType::SENSOR_TYPE_QUAD;
       Device[deviceCount].Ports = 0;
       Device[deviceCount].PullUpOption = false;
       Device[deviceCount].InverseLogicOption = false;
       Device[deviceCount].FormulaOption = true;
       Device[deviceCount].ValueCount = 4;
-      Device[deviceCount].SendDataOption = true;
-      Device[deviceCount].TimerOption = true;
-      Device[deviceCount].TimerOptional = true;
+      Device[deviceCount].SendDataOption = false;
+      Device[deviceCount].TimerOption = false;
+      Device[deviceCount].TimerOptional = false;
       Device[deviceCount].GlobalSyncOption = true;
       break;
     }
 
     case PLUGIN_GET_DEVICENAME: {
-      string = F(PLUGIN_NAME_091);
+      string = F(PLUGIN_NAME_128);
       break;
     }
 
     case PLUGIN_GET_DEVICEVALUENAMES: {
-      strcpy_P(ExtraTaskSettings.TaskDeviceValueNames[0], PSTR(PLUGIN_VALUENAME1_091));
-      strcpy_P(ExtraTaskSettings.TaskDeviceValueNames[1], PSTR(PLUGIN_VALUENAME2_091));
-      strcpy_P(ExtraTaskSettings.TaskDeviceValueNames[2], PSTR(PLUGIN_VALUENAME3_091));
-      strcpy_P(ExtraTaskSettings.TaskDeviceValueNames[3], PSTR(PLUGIN_VALUENAME4_091));
+      strcpy_P(ExtraTaskSettings.TaskDeviceValueNames[0], PSTR(PLUGIN_VALUENAME1_128));
+      strcpy_P(ExtraTaskSettings.TaskDeviceValueNames[1], PSTR(PLUGIN_VALUENAME2_128));
+      strcpy_P(ExtraTaskSettings.TaskDeviceValueNames[2], PSTR(PLUGIN_VALUENAME3_128));
+      // (ExtraTaskSettings.TaskDeviceValueNames[3], PSTR(PLUGIN_VALUENAME4_128));
+      strcpy_P(ExtraTaskSettings.TaskDeviceValueNames[3], PSTR(PLUGIN_VALUENAME5_128));
       break;
     }
 
@@ -161,7 +170,7 @@ boolean Plugin_091(byte function, struct EventStruct *event, String &string) {
     }
 
     case PLUGIN_INIT: {
-      initPluginTaskData(event->TaskIndex, new P091_data_struct());
+      initPluginTaskData(event->TaskIndex, new P128_data_struct());
 
       Settings.UseSerial = true; // Enable Serial port
       disableSerialLog(); // disable logging on serial port (used for HLW8032 communication)
@@ -173,16 +182,17 @@ boolean Plugin_091(byte function, struct EventStruct *event, String &string) {
     }
 
     case PLUGIN_SERIAL_IN: {
-      P091_data_struct* P091_data = static_cast<P091_data_struct*>(getPluginTaskData(event->TaskIndex));
-      if (nullptr != P091_data) {
+      P128_data_struct* P128_data = static_cast<P128_data_struct*>(getPluginTaskData(event->TaskIndex));
+      if (nullptr != P128_data) {
         success = true;
-        if (P091_data->processSerialData()) {     //校验数据
+        if (P128_data->processSerialData()) {     //校验数据
           CseReceived(event);
           //更新数据显示
-          UserVar[event->BaseVarIndex] = P091_data->energy_voltage;
-          UserVar[event->BaseVarIndex + 1] = P091_data->energy_current;
-          UserVar[event->BaseVarIndex + 2] = P091_data->energy_power;
-          UserVar[event->BaseVarIndex + 3] = P091_data->total_cf_pulses;
+          UserVar[event->BaseVarIndex] = P128_data->energy_voltage;
+          UserVar[event->BaseVarIndex + 1] = P128_data->energy_current;
+          UserVar[event->BaseVarIndex + 2] = P128_data->energy_power;
+          // UserVar[event->BaseVarIndex + 3] = P128_data->total_cf_pulses;
+          UserVar[event->BaseVarIndex + 3] = P128_data->energy;
         }
       }
       break;
@@ -192,14 +202,14 @@ boolean Plugin_091(byte function, struct EventStruct *event, String &string) {
 }
 
 bool CseReceived(struct EventStruct *event) {
-  P091_data_struct* P091_data = static_cast<P091_data_struct*>(getPluginTaskData(event->TaskIndex));
-  if (nullptr == P091_data) {
+  P128_data_struct* P128_data = static_cast<P128_data_struct*>(getPluginTaskData(event->TaskIndex));
+  if (nullptr == P128_data) {
     return false;
   }
-  if (!P091_data->processCseReceived(event)) {
+  if (!P128_data->processCseReceived(event)) {
     return false;
   }
   return true;
 }
 
-#endif // USES_P091
+#endif // USES_P128
